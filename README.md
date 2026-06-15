@@ -19,6 +19,7 @@
 - `扱い` ごとの絞り込み
 - 店名、分類、相手、メモ、カード名で検索
 - 明細カード表示
+- 明細ごとの `大分類`、`子分類`、`扱い`、`人数`、相手、回収済み、メモの編集
 - 分類別集計
 - 扱い別集計
 
@@ -26,8 +27,8 @@
 
 注意:
 
-- Streamlit 版のカード家計簿画面は読み取り専用です。
-- 明細の `扱い`、`人数`、`回収済み` などをスマホから編集したい場合は、Apps Script Web アプリ版を使います。
+- 表示だけなら `CARD_HISTORY_CSV_URL` だけで使えます。
+- サイトからスプレッドシートへ保存するには、Apps Script Web アプリの `/exec` URL を `CARD_HISTORY_UPDATE_URL` として Streamlit Secrets に設定します。
 
 ## セットアップ方法
 
@@ -99,8 +100,7 @@ GitHub と Streamlit Community Cloud を使うと、PCを起動していなく�
 
 注意:
 
-- Streamlit 版のカード家計簿は読み取り専用です。
-- 家計簿データを扱うため、`CARD_HISTORY_CSV_URL` と `APP_PASSWORD` は GitHub に書かず、Streamlit Secrets に設定します。
+- 家計簿データを扱うため、`CARD_HISTORY_CSV_URL`、`CARD_HISTORY_UPDATE_URL`、`APP_PASSWORD` は GitHub に書かず、Streamlit Secrets に設定します。
 - Streamlit Community Cloud が private repository を読めない場合は、Secrets 化したうえでリポジトリを Public に変更してデプロイします。
 - ポイント画像アップロードと SQLite 保存はクラウド無料環境では永続保存に向きません。常時運用するなら、保存先を外部DBまたは Google Sheets に移すのが安全です。
 
@@ -216,9 +216,9 @@ SQLite データベース:
 
 ## Apps Script Web アプリ版
 
-スマホからカード明細を編集する用途向けに、Apps Script Web アプリ用ファイルも用意しています。
+スマホからカード明細を編集する用途向けに、Apps Script Web アプリ用ファイルも用意しています。Streamlit 版で保存機能を使う場合も、この Apps Script Web アプリの `/exec` URL を使います。
 
 - `money_mobile_app_backend.gs`
 - `money_mobile_app.html`
 
-これらを既存の Apps Script プロジェクトへ追加すると、Google Sheets を直接読み書きするスマホ向け Web アプリとして使えます。
+これらを既存の Apps Script プロジェクトへ追加すると、Google Sheets を直接読み書きするスマホ向け Web アプリとして使えます。Web アプリとしてデプロイした URL を Streamlit Secrets の `CARD_HISTORY_UPDATE_URL` に設定すると、Streamlit 画面内の各明細から `大分類`、`子分類`、`扱い`、`人数` などを保存できます。

@@ -1,0 +1,6 @@
+streamlit>=1.35
+pandas>=2.2
+altair>=5.3
+pillow>=10.3
+pytesseract>=0.3.13
+openai>=1.40

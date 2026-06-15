@@ -1,0 +1,7 @@
+[server]
+address = "0.0.0.0"
+headless = true
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false

@@ -619,9 +619,33 @@ def normalize_card_history_df(df: pd.DataFrame) -> pd.DataFrame:
     normalized["小分類"] = normalized["小分類"].fillna("")
     normalized["カード名"] = normalized["カード名"].fillna("")
     normalized["回収済み"] = normalized["回収済み"].astype(str).str.upper().isin(["TRUE", "1", "YES"])
+    normalized = normalize_card_burden_amounts(normalized)
     normalized["月"] = normalized["日付"].dt.strftime("%Y-%m")
     normalized["日付表示"] = normalized["日付"].dt.strftime("%Y/%m/%d")
     return normalized.sort_values("日付", ascending=False)
+
+
+def normalize_card_burden_amounts(df: pd.DataFrame) -> pd.DataFrame:
+    normalized = df.copy()
+
+    own_mask = normalized["扱い"] == "自分の支出"
+    normalized.loc[own_mask, "人数"] = 0
+    normalized.loc[own_mask, "自分負担額"] = normalized.loc[own_mask, "金額"]
+    normalized.loc[own_mask, "相手負担額"] = 0
+
+    split_mask = normalized["扱い"] == "割り勘"
+    split_counts = normalized.loc[split_mask, "人数"].where(normalized.loc[split_mask, "人数"] >= 2, 2)
+    split_counts = split_counts.clip(lower=2, upper=10).round()
+    normalized.loc[split_mask, "人数"] = split_counts
+    normalized.loc[split_mask, "自分負担額"] = (normalized.loc[split_mask, "金額"] / split_counts).round()
+    normalized.loc[split_mask, "相手負担額"] = normalized.loc[split_mask, "金額"] - normalized.loc[split_mask, "自分負担額"]
+
+    advance_mask = normalized["扱い"].isin(["立替", "お使い"])
+    normalized.loc[advance_mask, "人数"] = 0
+    normalized.loc[advance_mask, "自分負担額"] = 0
+    normalized.loc[advance_mask, "相手負担額"] = normalized.loc[advance_mask, "金額"]
+
+    return normalized
 
 
 def card_history_summary(df: pd.DataFrame) -> dict[str, int]:

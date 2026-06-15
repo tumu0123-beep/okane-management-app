@@ -48,6 +48,15 @@ APP_PASSWORD = "自分だけが知っているパスワード"
 CARD_HISTORY_CSV_URL = "Google Sheets の CSV export URL"
 ```
 
+サイトから `大分類`、`子分類`、`扱い`、`人数` などをスプレッドシートへ保存する場合は追加:
+
+```toml
+CARD_HISTORY_UPDATE_URL = "Apps Script Web アプリの /exec URL"
+CARD_HISTORY_UPDATE_TOKEN = "Apps Script の Script Properties に設定した任意の更新トークン"
+```
+
+`CARD_HISTORY_UPDATE_TOKEN` は任意です。使う場合は Apps Script のプロジェクト設定で Script Properties に同じ名前と値を入れます。
+
 OpenAI Vision を使う場合だけ追加:
 
 ```toml
@@ -60,7 +69,8 @@ OPENAI_API_KEY = "sk-..."
 - 正しいパスワードでログインできる
 - `家計簿` 画面で当月の明細と月別集計が見える
 - `分類別` / `扱い別` の切り替えが動く
+- 各明細の `編集` から `大分類`、`子分類`、`扱い`、`人数` を保存できる
 
 ## スマホから編集したい場合
 
-Streamlit 版は読み取り専用です。`扱い`、`人数`、`回収済み`、メモをスマホから編集したい場合は、Apps Script Web アプリ版を使います。
+`money_mobile_app_backend.gs` を Apps Script に追加し、Web アプリとしてデプロイした `/exec` URL を `CARD_HISTORY_UPDATE_URL` に設定します。

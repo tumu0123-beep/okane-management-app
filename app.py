@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 from pathlib import Path
 from typing import Any
+from urllib import parse, request
 
 import altair as alt
 import pandas as pd
@@ -24,8 +25,13 @@ DATA_DIR = APP_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = DATA_DIR / "points.db"
 CARD_HISTORY_CSV_URL_SECRET = "CARD_HISTORY_CSV_URL"
+CARD_HISTORY_UPDATE_URL_SECRET = "CARD_HISTORY_UPDATE_URL"
+CARD_HISTORY_UPDATE_TOKEN_SECRET = "CARD_HISTORY_UPDATE_TOKEN"
 APP_PASSWORD_SECRET = "APP_PASSWORD"
 CARD_HANDLINGS = ["すべて", "自分の支出", "割り勘", "立替", "お使い", "不明"]
+CARD_EDIT_HANDLINGS = ["自分の支出", "割り勘", "立替", "お使い", "不明"]
+CARD_LARGE_CATEGORY_PRESETS = ["未分類", "食費", "日用品", "交通", "通信", "住居", "水道光熱", "医療", "美容", "娯楽", "旅行", "仕事", "その他"]
+CARD_SMALL_CATEGORY_PRESETS = ["", "スーパー", "コンビニ", "外食", "通販", "電子マネー", "交通", "宿泊", "サブスク", "その他"]
 
 SERVICE_META = {
     "楽天ポイント": {"mark": "R", "color": "#d71920", "yen_rate": 1.0, "keywords": ["楽天", "rakuten"]},
@@ -297,6 +303,79 @@ def image_mime_type(image_path: Path) -> str:
     return "image/png"
 
 
+def normalize_google_sheet_csv_url(csv_url: str) -> str:
+    value = csv_url.strip()
+    if not value:
+        return value
+
+    parsed = parse.urlparse(value)
+    if "docs.google.com" not in parsed.netloc or "/spreadsheets/d/" not in parsed.path:
+        return value
+
+    parts = [part for part in parsed.path.split("/") if part]
+    try:
+        spreadsheet_id = parts[parts.index("d") + 1]
+    except (ValueError, IndexError):
+        return value
+
+    query = parse.parse_qs(parsed.query)
+    gid = (query.get("gid") or ["0"])[0]
+    if not gid and parsed.fragment.startswith("gid="):
+        gid = parsed.fragment.split("=", 1)[1]
+    return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid or '0'}"
+
+
+def read_card_history_csv(csv_url: str) -> pd.DataFrame:
+    normalized_url = normalize_google_sheet_csv_url(csv_url)
+    cache_buster = f"_ts={int(datetime.now().timestamp())}"
+    separator = "&" if "?" in normalized_url else "?"
+    url = f"{normalized_url}{separator}{cache_buster}"
+    try:
+        return pd.read_csv(url)
+    except Exception as exc:
+        raise RuntimeError(
+            "Google Sheets の CSV を取得できませんでした。Streamlit Secrets の CARD_HISTORY_CSV_URL と、"
+            "スプレッドシートの公開/共有設定を確認してください。"
+        ) from exc
+
+
+def card_history_update_configured() -> bool:
+    return bool(config_value(CARD_HISTORY_UPDATE_URL_SECRET))
+
+
+def post_card_history_update(payload: dict[str, Any]) -> dict[str, Any]:
+    update_url = config_value(CARD_HISTORY_UPDATE_URL_SECRET)
+    if not update_url:
+        raise RuntimeError("CARD_HISTORY_UPDATE_URL is not configured. Set it in Streamlit Secrets.")
+
+    token = config_value(CARD_HISTORY_UPDATE_TOKEN_SECRET)
+    body = dict(payload)
+    if token:
+        body["token"] = token
+
+    encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = request.Request(
+        update_url,
+        data=encoded,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=20) as response:
+            response_body = response.read().decode("utf-8")
+    except Exception as exc:
+        raise RuntimeError("スプレッドシートへの保存に失敗しました。Apps Script のデプロイURLと権限を確認してください。") from exc
+
+    try:
+        result = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Apps Script から予期しない応答が返りました。") from exc
+
+    if not result.get("ok"):
+        raise RuntimeError(str(result.get("error") or "Apps Script 側で更新に失敗しました。"))
+    return result
+
+
 def extract_point_fields(text: str, filename: str) -> dict[str, Any]:
     ai_fields = extract_fields_from_json(text)
     if ai_fields:
@@ -487,7 +566,7 @@ def load_card_history() -> pd.DataFrame:
     csv_url = config_value(CARD_HISTORY_CSV_URL_SECRET)
     if not csv_url:
         raise RuntimeError("CARD_HISTORY_CSV_URL is not configured. Set it in Streamlit Secrets.")
-    df = pd.read_csv(csv_url)
+    df = read_card_history_csv(csv_url)
     df = df.dropna(how="all")
     if df.empty:
         return normalize_card_history_df(df)
@@ -495,7 +574,10 @@ def load_card_history() -> pd.DataFrame:
 
 
 def normalize_card_history_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["行番号"] = range(2, len(df) + 2)
     expected = [
+        "行番号",
         "日付",
         "利用店名",
         "金額",
@@ -517,6 +599,7 @@ def normalize_card_history_df(df: pd.DataFrame) -> pd.DataFrame:
             df[column] = None
 
     normalized = df[expected].copy()
+    normalized["行番号"] = pd.to_numeric(normalized["行番号"], errors="coerce").fillna(0).astype(int)
     normalized["日付"] = pd.to_datetime(normalized["日付"], errors="coerce")
     normalized = normalized.dropna(subset=["日付", "利用店名", "金額"])
     for column in ["金額", "人数", "自分負担額", "相手負担額"]:
@@ -902,6 +985,9 @@ def page_card_entries(df: pd.DataFrame) -> None:
         st.info("条件に合う明細がありません。")
         return
 
+    if not card_history_update_configured():
+        st.warning("編集を保存するには Streamlit Secrets に CARD_HISTORY_UPDATE_URL を設定してください。表示だけならこのまま使えます。")
+
     max_rows = st.slider("表示件数", 20, 120, 50, step=10)
     for _, row in df.head(max_rows).iterrows():
         handling = str(row["扱い"] or "不明")
@@ -930,6 +1016,78 @@ def page_card_entries(df: pd.DataFrame) -> None:
             """,
             unsafe_allow_html=True,
         )
+        page_card_entry_editor(row, df)
+
+
+def page_card_entry_editor(row: pd.Series, df: pd.DataFrame) -> None:
+    row_number = int(row.get("行番号") or 0)
+    if row_number < 2:
+        return
+
+    title = f"編集: {row['日付表示']} {row['利用店名']} {card_money(row['金額'])}"
+    with st.expander(title, expanded=False):
+        if not card_history_update_configured():
+            st.caption("保存先の Apps Script URL が未設定です。DEPLOY.md の CARD_HISTORY_UPDATE_URL を設定すると、ここからスプレッドシートへ保存できます。")
+            return
+
+        large_options = card_select_options(df["大分類"], CARD_LARGE_CATEGORY_PRESETS, str(row["大分類"] or "未分類"))
+        small_options = card_select_options(df["小分類"], CARD_SMALL_CATEGORY_PRESETS, str(row["小分類"] or ""))
+        current_handling = str(row["扱い"] or "自分の支出")
+        if current_handling not in CARD_EDIT_HANDLINGS:
+            current_handling = "不明"
+        split_count = int(row["人数"] or 2)
+        if split_count < 2:
+            split_count = 2
+
+        with st.form(f"card-entry-edit-{row_number}"):
+            large_category = st.selectbox(
+                "大分類",
+                large_options,
+                index=large_options.index(str(row["大分類"] or "未分類")) if str(row["大分類"] or "未分類") in large_options else 0,
+            )
+            small_category = st.selectbox(
+                "子分類",
+                small_options,
+                index=small_options.index(str(row["小分類"] or "")) if str(row["小分類"] or "") in small_options else 0,
+            )
+            edit_cols = st.columns([1, 1])
+            with edit_cols[0]:
+                new_handling = st.selectbox("扱い", CARD_EDIT_HANDLINGS, index=CARD_EDIT_HANDLINGS.index(current_handling))
+            with edit_cols[1]:
+                new_split_count = st.selectbox("人数", list(range(2, 11)), index=max(0, min(split_count, 10) - 2))
+            person = st.text_input("相手", value=str(row["相手"] or ""))
+            collected = st.checkbox("回収済み", value=bool(row["回収済み"]))
+            memo = st.text_area("メモ", value=str(row["メモ"] or ""), height=80)
+            submitted = st.form_submit_button("スプレッドシートへ保存", type="primary", use_container_width=True)
+
+        if submitted:
+            try:
+                post_card_history_update(
+                    {
+                        "rowNumber": row_number,
+                        "largeCategory": large_category,
+                        "smallCategory": small_category,
+                        "handling": new_handling,
+                        "splitCount": new_split_count,
+                        "person": person,
+                        "collected": collected,
+                        "memo": memo,
+                    }
+                )
+                load_card_history.clear()
+                st.success("保存しました。")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"保存できませんでした: {exc}")
+
+
+def card_select_options(series: pd.Series, presets: list[str], current: str) -> list[str]:
+    values = [str(value).strip() for value in series.dropna().unique()]
+    options: list[str] = []
+    for value in [current, *presets, *values]:
+        if value not in options:
+            options.append(value)
+    return options or [current]
 
 
 def page_card_category_summary(df: pd.DataFrame) -> None:

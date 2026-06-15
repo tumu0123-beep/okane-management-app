@@ -23,11 +23,8 @@ APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = DATA_DIR / "points.db"
-CARD_HISTORY_CSV_URL = (
-    "https://docs.google.com/spreadsheets/d/"
-    "16Pjxy1nkFVYmDl-NeM1sYznD9NdEpwrLMKcoiIaI46w"
-    "/export?format=csv&gid=1417535196"
-)
+CARD_HISTORY_CSV_URL_SECRET = "CARD_HISTORY_CSV_URL"
+APP_PASSWORD_SECRET = "APP_PASSWORD"
 CARD_HANDLINGS = ["すべて", "自分の支出", "割り勘", "立替", "お使い", "不明"]
 
 SERVICE_META = {
@@ -53,6 +50,37 @@ POINT_JSON_TEMPLATE = {
     "memo": "",
     "raw_text": "画面に見える文字",
 }
+
+
+def config_value(name: str) -> str:
+    value = os.getenv(name)
+    if value:
+        return value.strip()
+    try:
+        secret_value = st.secrets.get(name, "")
+    except Exception:
+        return ""
+    return str(secret_value or "").strip()
+
+
+def require_app_password() -> None:
+    expected_password = config_value(APP_PASSWORD_SECRET)
+    if not expected_password:
+        st.error("APP_PASSWORD is not configured. Set it in Streamlit Secrets before using this app.")
+        st.stop()
+
+    if st.session_state.get("app_authenticated") is True:
+        return
+
+    st.title("お金管理")
+    entered_password = st.text_input("パスワード", type="password")
+    if st.button("ログイン", use_container_width=True):
+        if entered_password == expected_password:
+            st.session_state["app_authenticated"] = True
+            st.rerun()
+        else:
+            st.error("パスワードが違います。")
+    st.stop()
 
 
 def init_storage() -> None:
@@ -456,7 +484,10 @@ def yen_total(df: pd.DataFrame) -> float:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_card_history() -> pd.DataFrame:
-    df = pd.read_csv(CARD_HISTORY_CSV_URL)
+    csv_url = config_value(CARD_HISTORY_CSV_URL_SECRET)
+    if not csv_url:
+        raise RuntimeError("CARD_HISTORY_CSV_URL is not configured. Set it in Streamlit Secrets.")
+    df = pd.read_csv(csv_url)
     df = df.dropna(how="all")
     if df.empty:
         return normalize_card_history_df(df)
@@ -1199,6 +1230,7 @@ def app_nav() -> str:
 
 def main() -> None:
     st.set_page_config(page_title="お金管理", page_icon="💠", layout="centered")
+    require_app_password()
     init_storage()
     css()
 

@@ -100,7 +100,8 @@ GitHub と Streamlit Community Cloud を使うと、PCを起動していなく�
 注意:
 
 - Streamlit 版のカード家計簿は読み取り専用です。
-- 家計簿データを扱うため、GitHub リポジトリは `Private` 推奨です。
+- 家計簿データを扱うため、`CARD_HISTORY_CSV_URL` と `APP_PASSWORD` は GitHub に書かず、Streamlit Secrets に設定します。
+- Streamlit Community Cloud が private repository を読めない場合は、Secrets 化したうえでリポジトリを Public に変更してデプロイします。
 - ポイント画像アップロードと SQLite 保存はクラウド無料環境では永続保存に向きません。常時運用するなら、保存先を外部DBまたは Google Sheets に移すのが安全です。
 
 ## 使い方

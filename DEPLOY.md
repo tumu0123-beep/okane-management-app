@@ -4,32 +4,24 @@
 
 ## 重要な注意
 
-- 家計簿データを扱うため、GitHub リポジトリは `Private` 推奨です。
 - `.venv/`、`data/`、`__pycache__/`、`.streamlit/secrets.toml` は GitHub に上げません。
-- カード家計簿画面は Google Sheets の公開CSVを読みます。
-- ポイント画像アップロードと SQLite 保存は、無料クラウド環境では永続保存に向きません。常時利用するなら、後で外部DBまたは Google Sheets 保存に移すのが安全です。
-- OpenAI Vision を使う場合、`OPENAI_API_KEY` は GitHub に書かず、Streamlit Cloud の Secrets に設定します。
+- Google Sheets の CSV URL は GitHub に書かず、Streamlit Cloud の Secrets に設定します。
+- アプリは `APP_PASSWORD` が未設定だと停止します。公開URLを知っている人に家計データを見られないようにするためです。
+- OpenAI Vision を使う場合、`OPENAI_API_KEY` も Streamlit Cloud の Secrets に設定します。
+- Streamlit Community Cloud が private repository を読めない場合は、Secrets 化したうえでリポジトリを Public に変更してデプロイします。
 
 ## GitHub に入れるファイル
-
-最低限:
 
 - `app.py`
 - `requirements.txt`
 - `runtime.txt`
 - `packages.txt`
 - `README.md`
+- `DEPLOY.md`
 - `.gitignore`
 - `.streamlit/config.toml`
 
-任意:
-
-- `money_mobile_app_backend.gs`
-- `money_mobile_app.html`
-- `repair_card_history_import.gs`
-- `Gmail家計簿自動転記_引き継ぎ.md`
-
-入れない:
+入れないもの:
 
 - `.venv/`
 - `data/`
@@ -39,39 +31,36 @@
 
 ## Streamlit Community Cloud で公開する
 
-1. GitHub で private repository を作成します。
-2. このフォルダの公開対象ファイルを repository に push します。
-3. https://share.streamlit.io/ を開きます。
-4. `New app` を選びます。
-5. Repository を選択します。
-6. Branch は `main`、Main file path は `app.py` にします。
-7. `Deploy` を押します。
-8. 発行された URL をスマホで開きます。
+1. GitHub に公開対象ファイルを入れます。
+2. https://share.streamlit.io/ を開きます。
+3. `New app` または `Deploy an app` を選びます。
+4. Repository は `tumu0123-beep/okane-management-app`、Branch は `main`、Main file path は `app.py` にします。
+5. `Advanced settings` の `Secrets` に下記を設定します。
+6. `Deploy` を押します。
+7. 発行された `.streamlit.app` のURLをスマホで開きます。
 
 ## Secrets
 
-OpenAI Vision を使う場合だけ、Streamlit Cloud の `App settings` -> `Secrets` に以下を設定します。
+必須:
+
+```toml
+APP_PASSWORD = "自分だけが知っているパスワード"
+CARD_HISTORY_CSV_URL = "Google Sheets の CSV export URL"
+```
+
+OpenAI Vision を使う場合だけ追加:
 
 ```toml
 OPENAI_API_KEY = "sk-..."
 ```
 
-Google Sheets のカード家計簿画面だけなら Secrets は不要です。
-
 ## 公開後の確認
 
-- `家計簿` 画面で `2026-06` などの月が出る
-- 自分負担、利用合計、未回収、相手負担が表示される
-- 明細カードが表示される
-- `分類` / `扱い` の切り替えが動く
+- 最初にパスワード画面が出る
+- 正しいパスワードでログインできる
+- `家計簿` 画面で当月の明細と月別集計が見える
+- `分類別` / `扱い別` の切り替えが動く
 
-## 編集もスマホで行いたい場合
+## スマホから編集したい場合
 
 Streamlit 版は読み取り専用です。`扱い`、`人数`、`回収済み`、メモをスマホから編集したい場合は、Apps Script Web アプリ版を使います。
-
-対象ファイル:
-
-- `money_mobile_app_backend.gs`
-- `money_mobile_app.html`
-
-Apps Script プロジェクトに追加し、Web アプリとしてデプロイします。アクセス権は `自分のみ` 推奨です。

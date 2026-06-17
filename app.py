@@ -30,6 +30,7 @@ CARD_HISTORY_UPDATE_TOKEN_SECRET = "CARD_HISTORY_UPDATE_TOKEN"
 APP_PASSWORD_SECRET = "APP_PASSWORD"
 CARD_HANDLINGS = ["すべて", "自分の支出", "割り勘", "立替", "お使い", "不明"]
 CARD_EDIT_HANDLINGS = ["自分の支出", "割り勘", "立替", "お使い", "不明"]
+CARD_PAYMENT_METHOD_PRESETS = ["現金", "PayPay", "楽天ペイ", "交通系IC", "口座振替", "その他"]
 CARD_LARGE_CATEGORY_PRESETS = ["未分類", "食費", "日用品", "交通", "通信", "住居", "水道光熱", "医療", "美容", "娯楽", "旅行", "仕事", "その他"]
 CARD_SMALL_CATEGORY_PRESETS = ["", "スーパー", "コンビニ", "外食", "通販", "電子マネー", "交通", "宿泊", "サブスク", "その他"]
 
@@ -962,7 +963,9 @@ def page_card_budget() -> None:
         month = st.selectbox("月", months, index=months.index(default_month) if default_month in months else 0)
     with filter_cols[1]:
         handling = st.selectbox("扱い", CARD_HANDLINGS)
-    query = st.text_input("検索", placeholder="店名・分類・相手・メモ")
+    query = st.text_input("検索", placeholder="店名・支払方法・分類・相手・メモ")
+
+    page_card_manual_entry_form(df)
 
     filtered = filter_card_history(df, month, handling, query)
     summary = card_history_summary(filtered)
@@ -1001,6 +1004,64 @@ def page_card_budget() -> None:
         page_card_handling_summary(filtered)
     else:
         page_card_entries(filtered)
+
+
+def page_card_manual_entry_form(df: pd.DataFrame) -> None:
+    with st.expander("現金・PayPayなどを手入力", expanded=False):
+        if not card_history_update_configured():
+            st.caption("保存先の Apps Script URL が未設定です。Secrets を設定すると手入力を追加できます。")
+            return
+
+        payment_options = card_select_options(df["カード名"], CARD_PAYMENT_METHOD_PRESETS, "現金")
+        large_options = card_select_options(df["大分類"], CARD_LARGE_CATEGORY_PRESETS, "未分類")
+        small_options = card_select_options(df["小分類"], CARD_SMALL_CATEGORY_PRESETS, "")
+
+        with st.form("card-manual-entry-create", clear_on_submit=True):
+            entry_date = st.date_input("日付", value=date.today())
+            payment_method = st.selectbox("支払方法", payment_options, index=payment_options.index("現金") if "現金" in payment_options else 0)
+            merchant = st.text_input("利用店名", placeholder="スーパー、PayPay送金、現金支払いなど")
+            amount = st.number_input("金額", min_value=0, step=100, format="%d")
+            large_category = st.selectbox("大分類", large_options, index=large_options.index("未分類") if "未分類" in large_options else 0)
+            small_category = st.selectbox("小分類", small_options)
+            edit_cols = st.columns([1, 1])
+            with edit_cols[0]:
+                handling = st.selectbox("扱い", CARD_EDIT_HANDLINGS, index=0, key="manual_handling")
+            with edit_cols[1]:
+                split_count = st.selectbox("人数", list(range(2, 11)), index=0, key="manual_split_count")
+            person = st.text_input("相手")
+            collected = st.checkbox("回収済み")
+            memo = st.text_area("メモ", height=80)
+            submitted = st.form_submit_button("手入力を追加", type="primary", use_container_width=True)
+
+        if submitted:
+            if not merchant.strip():
+                st.error("利用店名を入力してください。")
+                return
+            if int(amount or 0) <= 0:
+                st.error("金額を入力してください。")
+                return
+            try:
+                post_card_history_update(
+                    {
+                        "action": "createManualEntry",
+                        "date": entry_date.strftime("%Y-%m-%d"),
+                        "paymentMethod": payment_method,
+                        "merchant": merchant,
+                        "amount": int(amount),
+                        "largeCategory": large_category,
+                        "smallCategory": small_category,
+                        "handling": handling,
+                        "splitCount": split_count,
+                        "person": person,
+                        "collected": collected,
+                        "memo": memo,
+                    }
+                )
+                load_card_history.clear()
+                st.success("手入力を追加しました。")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"追加できませんでした: {exc}")
 
 
 def page_card_entries(df: pd.DataFrame) -> None:

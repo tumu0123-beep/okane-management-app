@@ -963,7 +963,12 @@ def page_card_budget() -> None:
         month = st.selectbox("月", months, index=months.index(default_month) if default_month in months else 0)
     with filter_cols[1]:
         handling = st.selectbox("扱い", CARD_HANDLINGS)
-    query = st.text_input("検索", placeholder="店名・支払方法・分類・相手・メモ")
+    with st.form("card-history-search", border=False):
+        search_col, submit_col = st.columns([4, 1])
+        with search_col:
+            query = st.text_input("検索", placeholder="店名・支払方法・分類・相手・メモ")
+        with submit_col:
+            st.form_submit_button("検索", use_container_width=True)
 
     page_card_manual_entry_form(df)
 
